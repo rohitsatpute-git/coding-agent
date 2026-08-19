@@ -57,7 +57,7 @@ Each `run` starts the command with `cwd` set to the workspace and a stripped env
 - wall-clock timeout and `RLIMIT_CPU`
 - `RLIMIT_AS` memory cap
 - `RLIMIT_NPROC` / `RLIMIT_FSIZE` / no core dumps
-- Linux user namespace + **no network** + PID namespace via `unshare` when that works
+- Linux user namespace + **no network** via `unshare` when that works (optional PID namespace)
 
 This is a **developer sandbox**, not a multi-tenant jail. The agent process itself can still see the host filesystem; only the *tools* (`write_file` / `read_file`) reject path traversal, and the *child* is namespace-limited.
 

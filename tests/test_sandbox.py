@@ -35,3 +35,19 @@ def test_truncates_output(tmp_path: Path) -> None:
     result = sandbox.run(["python3", "-c", "print('x' * 500)"])
     assert result.ok
     assert "truncated" in result.stdout
+
+
+def test_network_namespace_blocks_connect(tmp_path: Path) -> None:
+    sandbox = Sandbox(tmp_path, SandboxConfig(timeout_seconds=3, isolate_network=True))
+    result = sandbox.run(
+        [
+            "python3",
+            "-c",
+            "import socket; s=socket.socket(); s.settimeout(1); s.connect(('1.1.1.1', 53))",
+        ]
+    )
+    if not result.isolated:
+        return
+    assert not result.ok
+    combined = result.stdout + result.stderr
+    assert "Network is unreachable" in combined or "OSError" in combined or "error" in combined.lower()

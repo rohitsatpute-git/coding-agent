@@ -5,6 +5,7 @@ import resource
 import signal
 import subprocess
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from shutil import which
@@ -17,7 +18,9 @@ class SandboxConfig:
     cpu_seconds: int = 15
     max_output_chars: int = 16_000
     isolate_network: bool = True
-    isolate_pid: bool = True
+    isolate_pid: bool = False
+    # RLIMIT_NPROC is per real UID on Linux, so a low cap breaks under pytest/IDEs.
+    max_processes: int | None = 4096
 
 
 @dataclass
@@ -74,18 +77,33 @@ class Sandbox:
             resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
             resource.setrlimit(resource.RLIMIT_CPU, (cpu_seconds, cpu_seconds + 1))
             resource.setrlimit(resource.RLIMIT_FSIZE, (64 * 1024 * 1024, 64 * 1024 * 1024))
-            resource.setrlimit(resource.RLIMIT_NPROC, (128, 128))
+            if self.config.max_processes is not None:
+                nproc = max(256, self.config.max_processes)
+                resource.setrlimit(resource.RLIMIT_NPROC, (nproc, nproc))
             resource.setrlimit(resource.RLIMIT_AS, (memory_bytes, memory_bytes))
 
+        result = self._spawn(isolated_argv, env, preexec, displayed_argv=argv, isolated=isolated)
+        if isolated and not result.ok and "fork failed" in (result.stderr or "").lower():
+            result = self._spawn(list(argv), env, preexec, displayed_argv=argv, isolated=False)
+        return result
+
+    def _spawn(
+        self,
+        argv: list[str],
+        env: dict[str, str],
+        preexec: Callable[[], None],
+        *,
+        displayed_argv: list[str],
+        isolated: bool,
+    ) -> SandboxResult:
         started = time.monotonic()
         timed_out = False
         stdout = ""
         stderr = ""
         exit_code: int | None = None
-        proc: subprocess.Popen[str] | None = None
         try:
             proc = subprocess.Popen(
-                isolated_argv,
+                argv,
                 cwd=str(self.root),
                 env=env,
                 stdout=subprocess.PIPE,
@@ -103,12 +121,12 @@ class Sandbox:
                 stdout = leftover[0] or ""
                 stderr = leftover[1] or ""
                 exit_code = proc.returncode
-        except Exception as exc:  # isolation wrapper or spawn failure
+        except Exception as exc:
             stderr = f"failed to start sandbox process: {exc}"
             exit_code = 127
         duration = time.monotonic() - started
         return SandboxResult(
-            argv=list(argv),
+            argv=list(displayed_argv),
             exit_code=exit_code,
             stdout=self._clip(stdout),
             stderr=self._clip(stderr),

@@ -28,10 +28,8 @@ def scripted_replies() -> list[str]:
 
 
 def run_demo(workspace_dir: Path | None = None) -> int:
-    cleanup = False
     if workspace_dir is None:
         workspace_dir = Path(tempfile.mkdtemp(prefix="coding-agent-demo-"))
-        cleanup = False
     workspace = Workspace(workspace_dir)
     agent = CodingAgent(FakeLLM(scripted_replies()), workspace, max_steps=8)
     task = "Write a Python program that prints the sum of integers from 1 through 10 inclusive."
