@@ -5,12 +5,12 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "coding-agent"
 version = "0.1.0"
-description = "Autonomous coding agent that writes, runs, observes, and repairs code in a sandbox."
+description = "Autonomous coding agent that writes, runs, and repairs code in a sandbox using local Ollama."
 readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.10"
 authors = [{ name = "coding-agent" }]
-keywords = ["agent", "sandbox", "coding", "llm"]
+keywords = ["agent", "sandbox", "coding", "ollama", "llm"]
 classifiers = [
   "Programming Language :: Python :: 3",
   "License :: OSI Approved :: MIT License",

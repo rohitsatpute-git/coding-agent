@@ -4,8 +4,11 @@ import json
 import os
 import urllib.error
 import urllib.request
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Any, Protocol
+
+JsonPoster = Callable[[str, dict[str, Any], dict[str, str], float], dict[str, Any]]
 
 
 @dataclass
@@ -16,6 +19,74 @@ class ChatMessage:
 
 class LLM(Protocol):
     def complete(self, messages: list[ChatMessage]) -> str: ...
+
+
+def post_json(url: str, payload: dict[str, Any], headers: dict[str, str], timeout: float) -> dict[str, Any]:
+    data = json.dumps(payload).encode("utf-8")
+    request = urllib.request.Request(url, data=data, method="POST", headers=headers)
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            return json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")
+        raise RuntimeError(f"LLM HTTP {exc.code}: {detail}") from exc
+    except urllib.error.URLError as exc:
+        raise RuntimeError(f"could not reach {url}: {exc.reason}") from exc
+
+
+def normalize_ollama_host(host: str) -> str:
+    value = host.strip().rstrip("/")
+    if value.endswith("/v1"):
+        value = value[:-3]
+    if not value.startswith(("http://", "https://")):
+        value = f"http://{value}"
+    return value.rstrip("/")
+
+
+class OllamaLLM:
+    """Local Ollama chat client (`/api/chat`). No API key required."""
+
+    def __init__(
+        self,
+        *,
+        model: str = "llama3.2",
+        host: str | None = None,
+        timeout: float = 180.0,
+        temperature: float = 0.1,
+        post: JsonPoster | None = None,
+    ) -> None:
+        self.model = model
+        self.host = normalize_ollama_host(
+            host or os.environ.get("OLLAMA_HOST", "http://127.0.0.1:11434")
+        )
+        self.timeout = timeout
+        self.temperature = temperature
+        self._post = post or post_json
+
+    def complete(self, messages: list[ChatMessage]) -> str:
+        url = f"{self.host}/api/chat"
+        payload = {
+            "model": self.model,
+            "stream": False,
+            "messages": [{"role": m.role, "content": m.content} for m in messages],
+            "options": {"temperature": self.temperature},
+        }
+        try:
+            body = self._post(
+                url,
+                payload,
+                {"Content-Type": "application/json"},
+                self.timeout,
+            )
+        except RuntimeError as exc:
+            raise RuntimeError(
+                f"{exc}. Start Ollama (`ollama serve`) and pull a model "
+                f"(`ollama pull {self.model}`)."
+            ) from exc
+        try:
+            return str(body["message"]["content"] or "")
+        except (KeyError, TypeError) as exc:
+            raise RuntimeError(f"unexpected Ollama response: {body!r}") from exc
 
 
 class OpenAICompatibleLLM:
